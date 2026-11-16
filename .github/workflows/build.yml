@@ -22,7 +22,7 @@ jobs:
           path: build/app/outputs/flutter-apk/app-debug.apk
 
   macos:
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -38,7 +38,7 @@ jobs:
           path: cuentas_claras_macos.zip
 
   windows:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
