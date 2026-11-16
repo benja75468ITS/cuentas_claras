@@ -21,6 +21,22 @@ jobs:
           name: cuentas-claras-apk
           path: build/app/outputs/flutter-apk/app-debug.apk
 
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.3'
+          channel: stable
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - run: ditto -c -k --keepParent build/macos/Build/Products/Release/*.app cuentas_claras_macos.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cuentas-claras-macos
+          path: cuentas_claras_macos.zip
+
   windows:
     runs-on: windows-latest
     steps:

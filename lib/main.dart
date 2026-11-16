@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'models/modelos.dart';
@@ -10,12 +11,15 @@ import 'screens/gasto_screen.dart';
 import 'screens/saldos_screen.dart';
 import 'screens/divisas_screen.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // En escritorio sqflite necesita el backend FFI; en Android/iOS usa el nativo.
   if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    // Carpeta propia de la app: es escribible aunque la app esté en sandbox (macOS).
+    final dir = await getApplicationSupportDirectory();
+    await databaseFactory.setDatabasesPath(dir.path);
   }
   runApp(const CuentasClarasApp());
 }
