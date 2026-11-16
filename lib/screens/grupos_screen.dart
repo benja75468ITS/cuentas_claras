@@ -25,15 +25,10 @@ class _GruposScreenState extends State<GruposScreen> {
   }
 
   Future<void> _nuevo() async {
-    final r = await showDialog<List<String>>(
+    final r = await showDialog<({String nombre, List<String> personas})>(
         context: context, builder: (_) => const _NuevoGrupoDialog());
     if (r == null) return;
-    final personas = r[1]
-        .split(',')
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
-    await DbHelper.instancia.crearGrupo(r[0], personas);
+    await DbHelper.instancia.crearGrupo(r.nombre, r.personas);
     _cargar();
   }
 
@@ -82,8 +77,10 @@ class _GruposScreenState extends State<GruposScreen> {
                         padding: const EdgeInsets.only(right: 20),
                         child: const Icon(Icons.delete, color: Colors.white),
                       ),
-                      confirmDismiss: (_) => confirmar(context, 'Se borrará "${g.nombre}" y todos sus gastos.'),
+                      confirmDismiss: (_) =>
+                          confirmar(context, 'Se borrará "${g.nombre}" y todos sus gastos.'),
                       onDismissed: (_) async {
+                        setState(() => _grupos.removeWhere((item) => item.id == g.id));
                         await DbHelper.instancia.eliminarGrupo(g.id);
                         _cargar();
                       },
@@ -120,12 +117,40 @@ class _NuevoGrupoDialog extends StatefulWidget {
 class _NuevoGrupoDialogState extends State<_NuevoGrupoDialog> {
   final _nombre = TextEditingController();
   final _personas = TextEditingController();
+  String? _error;
 
   @override
   void dispose() {
     _nombre.dispose();
     _personas.dispose();
     super.dispose();
+  }
+
+  void _crear() {
+    final nombre = _nombre.text.trim();
+    if (nombre.isEmpty) {
+      setState(() => _error = 'Escribe un nombre para el grupo');
+      return;
+    }
+
+    final vistos = <String>{};
+    final listaPersonas = <String>[];
+    for (final raw in _personas.text.split(',')) {
+      final p = raw.trim();
+      if (p.isEmpty) continue;
+      if (!vistos.add(p.toLowerCase())) {
+        setState(() => _error = 'Nombre duplicado: "$p"');
+        return;
+      }
+      listaPersonas.add(p);
+    }
+
+    if (listaPersonas.length < 2) {
+      setState(() => _error = 'Ingresa al menos 2 personas separadas por coma');
+      return;
+    }
+
+    Navigator.pop(context, (nombre: nombre, personas: listaPersonas));
   }
 
   @override
@@ -137,20 +162,29 @@ class _NuevoGrupoDialogState extends State<_NuevoGrupoDialog> {
           controller: _nombre,
           autofocus: true,
           decoration: const InputDecoration(labelText: 'Nombre (ej. Viaje a Mérida)'),
+          onChanged: (_) {
+            if (_error != null) setState(() => _error = null);
+          },
         ),
         TextField(
           controller: _personas,
           decoration: const InputDecoration(
               labelText: 'Personas separadas por coma', hintText: 'Ana, Luis, Marta'),
+          onChanged: (_) {
+            if (_error != null) setState(() => _error = null);
+          },
         ),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(_error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12)),
+          ),
       ]),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
         FilledButton(
-          onPressed: () {
-            if (_nombre.text.trim().isEmpty) return;
-            Navigator.pop(context, [_nombre.text.trim(), _personas.text]);
-          },
+          onPressed: _crear,
           child: const Text('Crear'),
         ),
       ],

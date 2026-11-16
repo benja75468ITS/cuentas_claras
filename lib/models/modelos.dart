@@ -48,7 +48,13 @@ class Gasto {
   });
 }
 
-String dinero(double v) => '\$${v.toStringAsFixed(2)}';
+/// Redondea un valor monetario a 2 decimales (centavos).
+double redondearMoneda(double v) => (v * 100).round() / 100.0;
+
+String dinero(double v) {
+  final limpio = v.abs() < 0.005 ? 0.0 : redondearMoneda(v);
+  return '\$${limpio.toStringAsFixed(2)}';
+}
 
 /// Pago registrado: [deId] le pagó [monto] a [aId].
 class Pago {

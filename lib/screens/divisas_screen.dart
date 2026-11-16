@@ -12,6 +12,7 @@ class _DivisasScreenState extends State<DivisasScreen> {
   String _de = 'USD';
   String _a = 'MXN';
   String? _resultado;
+  String? _error;
   bool _cargando = false;
 
   @override
@@ -21,24 +22,41 @@ class _DivisasScreenState extends State<DivisasScreen> {
   }
 
   Future<void> _convertir() async {
-    final m = double.tryParse(_monto.text.replaceAll(',', '.'));
-    if (m == null) return;
-    setState(() { _cargando = true; _resultado = null; });
+    final m = double.tryParse(_monto.text.trim().replaceAll(',', '.'));
+    if (m == null || m <= 0) {
+      setState(() {
+        _error = 'Ingresa un monto válido mayor a 0';
+        _resultado = null;
+      });
+      return;
+    }
+    setState(() {
+      _cargando = true;
+      _resultado = null;
+      _error = null;
+    });
     try {
       final t = await DivisasService.tasa(_de, _a);
+      if (!mounted) return;
       setState(() => _resultado =
           '${m.toStringAsFixed(2)} $_de = ${(m * t).toStringAsFixed(2)} $_a\n(1 $_de = ${t.toStringAsFixed(4)} $_a)');
     } catch (_) {
-      setState(() => _resultado = 'No se pudo consultar el tipo de cambio.');
+      if (!mounted) return;
+      setState(() => _error = 'No se pudo consultar el tipo de cambio.');
     } finally {
-      setState(() => _cargando = false);
+      if (mounted) setState(() => _cargando = false);
     }
   }
 
   Widget _selector(String valor, ValueChanged<String> cambio) => DropdownButton<String>(
         value: valor,
-        items: [for (final m in DivisasService.monedas) DropdownMenuItem(value: m, child: Text(m))],
-        onChanged: (v) => cambio(v!),
+        items: [
+          for (final m in DivisasService.monedas) DropdownMenuItem(value: m, child: Text(m))
+        ],
+        onChanged: (v) {
+          if (v == null) return;
+          cambio(v);
+        },
       );
 
   @override
@@ -51,16 +69,33 @@ class _DivisasScreenState extends State<DivisasScreen> {
           TextField(
             controller: _monto,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: 'Monto'),
+            decoration: InputDecoration(
+              labelText: 'Monto',
+              errorText: _error,
+            ),
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
           ),
           const SizedBox(height: 16),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            _selector(_de, (v) => setState(() => _de = v)),
+            _selector(_de, (v) => setState(() {
+                  _de = v;
+                  _resultado = null;
+                })),
             IconButton(
               icon: const Icon(Icons.swap_horiz),
-              onPressed: () => setState(() { final t = _de; _de = _a; _a = t; }),
+              onPressed: () => setState(() {
+                final t = _de;
+                _de = _a;
+                _a = t;
+                _resultado = null;
+              }),
             ),
-            _selector(_a, (v) => setState(() => _a = v)),
+            _selector(_a, (v) => setState(() {
+                  _a = v;
+                  _resultado = null;
+                })),
           ]),
           const SizedBox(height: 16),
           FilledButton(onPressed: _cargando ? null : _convertir, child: const Text('Convertir')),

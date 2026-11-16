@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../db/db_helper.dart';
+import '../logic/saldos.dart';
 import '../models/modelos.dart';
 import '../widgets/dialogos.dart';
 
@@ -29,8 +30,18 @@ class _GrupoScreenState extends State<GrupoScreen> {
 
   Future<void> _agregarPersona() async {
     final n = await pedirTexto(context, 'Nueva persona', 'Nombre');
-    if (n == null || n.isEmpty) return;
-    await DbHelper.instancia.agregarPersona(widget.grupo.id, n);
+    if (n == null || n.trim().isEmpty) return;
+    final limpio = n.trim();
+    final yaExiste = _personas.any((p) => p.nombre.toLowerCase() == limpio.toLowerCase());
+    if (yaExiste) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ya existe "$limpio" en este grupo')),
+        );
+      }
+      return;
+    }
+    await DbHelper.instancia.agregarPersona(widget.grupo.id, limpio);
     _cargar();
   }
 
@@ -51,7 +62,8 @@ class _GrupoScreenState extends State<GrupoScreen> {
   /// Muestra quién pagó este gasto y cuánto le debe cada participante.
   void _verDetalle(Gasto g, Map<int, String> nombres) {
     final pagador = nombres[g.pagadorId] ?? '?';
-    final parte = g.participantes.isEmpty ? 0.0 : g.monto / g.participantes.length;
+    final partes = repartirGasto(g);
+    final partePromedio = g.participantes.isEmpty ? 0.0 : g.monto / g.participantes.length;
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
@@ -68,23 +80,23 @@ class _GrupoScreenState extends State<GrupoScreen> {
               Text('Total ${dinero(g.monto)} MXN'
                   '${g.moneda != 'MXN' ? '  (${g.montoOriginal.toStringAsFixed(2)} ${g.moneda})' : ''}'),
               Text('Pagó: $pagador'),
-              Text('Se divide entre ${g.participantes.length} · ${dinero(parte)} c/u'),
+              Text('Se divide entre ${partes.length} · ~${dinero(partePromedio)} c/u'),
               const Divider(height: 24),
-              for (final id in g.participantes)
-                if (id == g.pagadorId)
+              for (final entry in partes.entries)
+                if (entry.key == g.pagadorId)
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.check_circle, color: Colors.green),
-                    title: Text(nombres[id] ?? '?'),
+                    title: Text(nombres[entry.key] ?? '?'),
                     subtitle: const Text('Pagó el gasto (su parte ya está cubierta)'),
-                    trailing: Text(dinero(parte)),
+                    trailing: Text(dinero(entry.value)),
                   )
                 else
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.arrow_forward, color: Colors.red),
-                    title: Text('${nombres[id] ?? '?'} le debe a $pagador'),
-                    trailing: Text(dinero(parte),
+                    title: Text('${nombres[entry.key] ?? '?'} le debe a $pagador'),
+                    trailing: Text(dinero(entry.value),
                         style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
                   ),
               const SizedBox(height: 12),
@@ -113,7 +125,10 @@ class _GrupoScreenState extends State<GrupoScreen> {
           IconButton(
             tooltip: 'Ver saldos',
             icon: const Icon(Icons.balance),
-            onPressed: () => Navigator.pushNamed(context, '/saldos', arguments: widget.grupo),
+            onPressed: () async {
+              await Navigator.pushNamed(context, '/saldos', arguments: widget.grupo);
+              _cargar();
+            },
           ),
         ],
       ),

@@ -5,9 +5,12 @@ import '../models/modelos.dart';
 class DbHelper {
   DbHelper._();
   static final DbHelper instancia = DbHelper._();
-  Database? _db;
+  Future<Database>? _dbFuture;
 
-  Future<Database> get db async => _db ??= await _abrir();
+  Future<Database> get db => _dbFuture ??= _abrir().catchError((Object e) {
+        _dbFuture = null;
+        throw e;
+      });
 
   Future<Database> _abrir() async {
     return openDatabase(
@@ -57,13 +60,21 @@ class DbHelper {
     return r.map(Pago.fromMap).toList();
   }
 
-  Future<void> registrarPago(Pago p) async => (await db).insert('pagos', {
-        'grupo_id': p.grupoId,
-        'de_id': p.deId,
-        'a_id': p.aId,
-        'monto': p.monto,
-        'fecha': p.fecha,
-      });
+  Future<void> registrarPago(Pago p) async {
+    if (p.deId == p.aId) {
+      throw ArgumentError('El pagador y el receptor no pueden ser la misma persona');
+    }
+    if (p.monto <= 0) {
+      throw ArgumentError('El monto del pago debe ser mayor a 0');
+    }
+    await (await db).insert('pagos', {
+      'grupo_id': p.grupoId,
+      'de_id': p.deId,
+      'a_id': p.aId,
+      'monto': redondearMoneda(p.monto),
+      'fecha': p.fecha,
+    });
+  }
 
   Future<void> eliminarPago(int id) async =>
       (await db).delete('pagos', where: 'id = ?', whereArgs: [id]);
@@ -80,10 +91,24 @@ class DbHelper {
   }
 
   Future<void> crearGrupo(String nombre, List<String> personas) async {
+    final nombreLimpio = nombre.trim();
+    if (nombreLimpio.isEmpty) {
+      throw ArgumentError('El nombre del grupo no puede estar vacío');
+    }
+    final vistos = <String>{};
+    final unicas = <String>[];
+    for (final p in personas) {
+      final limpio = p.trim();
+      if (limpio.isEmpty) continue;
+      if (vistos.add(limpio.toLowerCase())) {
+        unicas.add(limpio);
+      }
+    }
+
     final d = await db;
     await d.transaction((t) async {
-      final id = await t.insert('grupos', {'nombre': nombre});
-      for (final p in personas) {
+      final id = await t.insert('grupos', {'nombre': nombreLimpio});
+      for (final p in unicas) {
         await t.insert('personas', {'grupo_id': id, 'nombre': p});
       }
     });
@@ -99,43 +124,69 @@ class DbHelper {
     return r.map(Persona.fromMap).toList();
   }
 
-  Future<void> agregarPersona(int grupoId, String nombre) async =>
-      (await db).insert('personas', {'grupo_id': grupoId, 'nombre': nombre});
+  Future<void> agregarPersona(int grupoId, String nombre) async {
+    final limpio = nombre.trim();
+    if (limpio.isEmpty) return;
+    await (await db).insert('personas', {'grupo_id': grupoId, 'nombre': limpio});
+  }
 
   // ---------- Gastos ----------
   Future<List<Gasto>> gastos(int grupoId) async {
     final d = await db;
-    final r = await d.query('gastos', where: 'grupo_id = ?', whereArgs: [grupoId], orderBy: 'id DESC');
-    final lista = <Gasto>[];
-    for (final m in r) {
-      final parts = await d.query('participantes',
-          where: 'gasto_id = ?', whereArgs: [m['id']]);
-      lista.add(Gasto(
-        id: m['id'] as int,
-        grupoId: grupoId,
-        descripcion: m['descripcion'] as String,
-        monto: (m['monto'] as num).toDouble(),
-        montoOriginal: (m['monto_original'] as num).toDouble(),
-        moneda: m['moneda'] as String,
-        pagadorId: m['pagador_id'] as int,
-        participantes: parts.map((p) => p['persona_id'] as int).toList(),
-      ));
+    final r = await d.query('gastos',
+        where: 'grupo_id = ?', whereArgs: [grupoId], orderBy: 'id DESC');
+    if (r.isEmpty) return [];
+
+    // Carga todos los participantes del grupo en una sola consulta (evita N+1 queries).
+    final partsRows = await d.rawQuery('''
+      SELECT p.gasto_id, p.persona_id
+      FROM participantes p
+      INNER JOIN gastos g ON g.id = p.gasto_id
+      WHERE g.grupo_id = ?
+      ORDER BY p.persona_id
+    ''', [grupoId]);
+
+    final porGasto = <int, List<int>>{};
+    for (final row in partsRows) {
+      final gId = row['gasto_id'] as int;
+      final pId = row['persona_id'] as int;
+      (porGasto[gId] ??= []).add(pId);
     }
-    return lista;
+
+    return [
+      for (final m in r)
+        Gasto(
+          id: m['id'] as int,
+          grupoId: grupoId,
+          descripcion: m['descripcion'] as String,
+          monto: (m['monto'] as num).toDouble(),
+          montoOriginal: (m['monto_original'] as num).toDouble(),
+          moneda: m['moneda'] as String,
+          pagadorId: m['pagador_id'] as int,
+          participantes: porGasto[m['id'] as int] ?? const [],
+        ),
+    ];
   }
 
   Future<void> crearGasto(Gasto g) async {
+    final unicos = g.participantes.toSet().toList();
+    if (unicos.isEmpty) {
+      throw ArgumentError('El gasto debe tener al menos un participante');
+    }
+    if (g.monto <= 0) {
+      throw ArgumentError('El monto del gasto debe ser mayor a 0');
+    }
     final d = await db;
     await d.transaction((t) async {
       final id = await t.insert('gastos', {
         'grupo_id': g.grupoId,
-        'descripcion': g.descripcion,
-        'monto': g.monto,
-        'monto_original': g.montoOriginal,
+        'descripcion': g.descripcion.trim(),
+        'monto': redondearMoneda(g.monto),
+        'monto_original': redondearMoneda(g.montoOriginal),
         'moneda': g.moneda,
         'pagador_id': g.pagadorId,
       });
-      for (final p in g.participantes) {
+      for (final p in unicos) {
         await t.insert('participantes', {'gasto_id': id, 'persona_id': p});
       }
     });

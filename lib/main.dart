@@ -44,19 +44,20 @@ class CuentasClarasApp extends StatelessWidget {
       ),
       initialRoute: '/',
       onGenerateRoute: (s) {
+        final arg = s.arguments;
         Widget pantalla;
         switch (s.name) {
           case '/':
             pantalla = const GruposScreen();
             break;
           case '/grupo':
-            pantalla = GrupoScreen(grupo: s.arguments as Grupo);
+            pantalla = arg is Grupo ? GrupoScreen(grupo: arg) : const GruposScreen();
             break;
           case '/gasto':
-            pantalla = GastoScreen(grupo: s.arguments as Grupo);
+            pantalla = arg is Grupo ? GastoScreen(grupo: arg) : const GruposScreen();
             break;
           case '/saldos':
-            pantalla = SaldosScreen(grupo: s.arguments as Grupo);
+            pantalla = arg is Grupo ? SaldosScreen(grupo: arg) : const GruposScreen();
             break;
           case '/divisas':
             pantalla = const DivisasScreen();

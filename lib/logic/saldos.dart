@@ -7,30 +7,75 @@ class Transferencia {
   Transferencia(this.deId, this.aId, this.monto);
 }
 
+int _aCentavos(double monto) => (monto * 100).round();
+double _deCentavos(int centavos) => centavos / 100.0;
+
+/// Reparte exactamente [totalCentavos] entre los participantes únicos de [g]
+/// asignando los centavos sobrantes primero a quienes no pagaron (en orden
+/// determinista por ID), garantizando que la suma de partes == totalCentavos.
+Map<int, int> _repartoEnCentavos(Gasto g) {
+  final unicos = g.participantes.toSet().toList()..sort();
+  if (unicos.isEmpty) return const {};
+
+  final total = _aCentavos(g.monto);
+  final n = unicos.length;
+  final base = total ~/ n;
+  var residuo = total % n;
+
+  final orden = [
+    for (final id in unicos)
+      if (id != g.pagadorId) id,
+    if (unicos.contains(g.pagadorId)) g.pagadorId,
+  ];
+
+  final partes = <int, int>{};
+  for (final id in orden) {
+    final extra = residuo > 0 ? 1 : 0;
+    if (residuo > 0) residuo--;
+    partes[id] = base + extra;
+  }
+  return partes;
+}
+
+/// Devuelve cuánto le corresponde pagar a cada participante del gasto [g] (en pesos exactos).
+Map<int, double> repartirGasto(Gasto g) {
+  final centavos = _repartoEnCentavos(g);
+  return {
+    for (final e in centavos.entries) e.key: _deCentavos(e.value),
+  };
+}
+
 /// Saldo neto por persona: positivo = le deben, negativo = debe.
 /// Un pago de X a Y sube el saldo de X y baja el de Y.
 Map<int, double> calcularSaldos(List<Persona> personas, List<Gasto> gastos,
     [List<Pago> pagos = const []]) {
-  final s = {for (final p in personas) p.id: 0.0};
+  final centavos = {for (final p in personas) p.id: 0};
+
   for (final g in gastos) {
-    if (g.participantes.isEmpty) continue;
-    final parte = g.monto / g.participantes.length;
-    s[g.pagadorId] = (s[g.pagadorId] ?? 0) + g.monto;
-    for (final id in g.participantes) {
-      s[id] = (s[id] ?? 0) - parte;
-    }
+    final partes = _repartoEnCentavos(g);
+    if (partes.isEmpty) continue;
+    final total = partes.values.fold<int>(0, (a, b) => a + b);
+    centavos[g.pagadorId] = (centavos[g.pagadorId] ?? 0) + total;
+    partes.forEach((id, parte) {
+      centavos[id] = (centavos[id] ?? 0) - parte;
+    });
   }
+
   for (final p in pagos) {
-    s[p.deId] = (s[p.deId] ?? 0) + p.monto;
-    s[p.aId] = (s[p.aId] ?? 0) - p.monto;
+    final m = _aCentavos(p.monto);
+    centavos[p.deId] = (centavos[p.deId] ?? 0) + m;
+    centavos[p.aId] = (centavos[p.aId] ?? 0) - m;
   }
-  return s;
+
+  return {
+    for (final e in centavos.entries) e.key: _deCentavos(e.value),
+  };
 }
 
 class _Saldo {
   final int id;
-  double v;
-  _Saldo(this.id, this.v);
+  int centavos;
+  _Saldo(this.id, this.centavos);
 }
 
 /// Minimiza el número de pagos: el que más debe le paga al que más se le debe.
@@ -38,56 +83,55 @@ List<Transferencia> simplificar(Map<int, double> saldos) {
   final deudores = <_Saldo>[];
   final acreedores = <_Saldo>[];
   saldos.forEach((id, v) {
-    if (v < -0.005) deudores.add(_Saldo(id, -v));
-    if (v > 0.005) acreedores.add(_Saldo(id, v));
+    final c = _aCentavos(v);
+    if (c < 0) deudores.add(_Saldo(id, -c));
+    if (c > 0) acreedores.add(_Saldo(id, c));
   });
-  deudores.sort((a, b) => b.v.compareTo(a.v));
-  acreedores.sort((a, b) => b.v.compareTo(a.v));
+  deudores.sort((a, b) => b.centavos.compareTo(a.centavos));
+  acreedores.sort((a, b) => b.centavos.compareTo(a.centavos));
 
   final pagos = <Transferencia>[];
   var i = 0, j = 0;
   while (i < deudores.length && j < acreedores.length) {
-    final monto = deudores[i].v < acreedores[j].v ? deudores[i].v : acreedores[j].v;
-    pagos.add(Transferencia(deudores[i].id, acreedores[j].id, monto));
-    deudores[i].v -= monto;
-    acreedores[j].v -= monto;
-    if (deudores[i].v < 0.005) i++;
-    if (acreedores[j].v < 0.005) j++;
+    final monto = deudores[i].centavos < acreedores[j].centavos
+        ? deudores[i].centavos
+        : acreedores[j].centavos;
+    if (monto > 0) {
+      pagos.add(Transferencia(deudores[i].id, acreedores[j].id, _deCentavos(monto)));
+    }
+    deudores[i].centavos -= monto;
+    acreedores[j].centavos -= monto;
+    if (deudores[i].centavos == 0) i++;
+    if (acreedores[j].centavos == 0) j++;
   }
   return pagos;
 }
 
-/// Deudas directas entre pares de personas (sin simplificar).
-/// Para cada par se restan las deudas en ambos sentidos y los pagos hechos.
+/// Deudas directas pendientes sin compensar entre pares.
+/// Si A le debe a B por un gasto y B le debe a A por otro gasto, ambas deudas
+/// permanecen activas por separado hasta que se registre un pago real.
 List<Transferencia> deudasDirectas(List<Gasto> gastos, [List<Pago> pagos = const []]) {
-  final d = <String, double>{};
+  final d = <String, int>{};
   for (final g in gastos) {
-    if (g.participantes.isEmpty) continue;
-    final parte = g.monto / g.participantes.length;
-    for (final id in g.participantes) {
-      if (id == g.pagadorId) continue;
+    final partes = _repartoEnCentavos(g);
+    partes.forEach((id, parte) {
+      if (id == g.pagadorId || parte == 0) return;
       final k = '$id>${g.pagadorId}';
       d[k] = (d[k] ?? 0) + parte;
-    }
+    });
   }
   for (final p in pagos) {
     final k = '${p.deId}>${p.aId}';
-    d[k] = (d[k] ?? 0) - p.monto;
+    d[k] = (d[k] ?? 0) - _aCentavos(p.monto);
   }
+
   final res = <Transferencia>[];
-  final vistos = <String>{};
-  for (final k in d.keys.toList()) {
-    final p = k.split('>');
-    final a = int.parse(p[0]);
-    final b = int.parse(p[1]);
-    final canon = a < b ? '$a|$b' : '$b|$a';
-    if (!vistos.add(canon)) continue;
-    final neto = (d['$a>$b'] ?? 0) - (d['$b>$a'] ?? 0);
-    if (neto > 0.005) {
-      res.add(Transferencia(a, b, neto));
-    } else if (neto < -0.005) {
-      res.add(Transferencia(b, a, -neto));
-    }
+  for (final entry in d.entries) {
+    if (entry.value <= 0) continue;
+    final p = entry.key.split('>');
+    final deId = int.parse(p[0]);
+    final aId = int.parse(p[1]);
+    res.add(Transferencia(deId, aId, _deCentavos(entry.value)));
   }
   return res;
 }
