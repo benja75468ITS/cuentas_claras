@@ -23,7 +23,7 @@ class _DivisasScreenState extends State<DivisasScreen> {
 
   Future<void> _convertir() async {
     final m = double.tryParse(_monto.text.trim().replaceAll(',', '.'));
-    if (m == null || m <= 0) {
+    if (m == null || !m.isFinite || m <= 0) {
       setState(() {
         _error = 'Ingresa un monto válido mayor a 0';
         _resultado = null;
@@ -40,7 +40,8 @@ class _DivisasScreenState extends State<DivisasScreen> {
       if (!mounted) return;
       setState(() => _resultado =
           '${m.toStringAsFixed(2)} $_de = ${(m * t).toStringAsFixed(2)} $_a\n(1 $_de = ${t.toStringAsFixed(4)} $_a)');
-    } catch (_) {
+    } catch (e) {
+      debugPrint('No se pudo consultar el tipo de cambio: $e');
       if (!mounted) return;
       setState(() => _error = 'No se pudo consultar el tipo de cambio.');
     } finally {

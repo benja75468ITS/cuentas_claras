@@ -59,7 +59,8 @@ class _GastoScreenState extends State<GastoScreen> {
     double tasa;
     try {
       tasa = await DivisasService.tasa(_moneda, 'MXN');
-    } catch (_) {
+    } catch (e) {
+      debugPrint('No se pudo consultar el tipo de cambio: $e');
       if (mounted) {
         setState(() => _guardando = false);
         _aviso('No se pudo obtener el tipo de cambio. Revisa tu conexión o usa MXN.');
@@ -68,7 +69,7 @@ class _GastoScreenState extends State<GastoScreen> {
     }
 
     final montoMxn = redondearMoneda(original * tasa);
-    if (montoMxn <= 0) {
+    if (!montoMxn.isFinite || montoMxn <= 0) {
       if (mounted) {
         setState(() => _guardando = false);
         _aviso('El monto convertido es demasiado pequeño.');
@@ -87,7 +88,8 @@ class _GastoScreenState extends State<GastoScreen> {
         participantes: _sel.toList(),
       ));
       if (mounted) Navigator.pop(context, true);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('No se pudo guardar el gasto: $e');
       if (mounted) {
         setState(() => _guardando = false);
         _aviso('No se pudo guardar el gasto.');
@@ -126,7 +128,9 @@ class _GastoScreenState extends State<GastoScreen> {
                           decoration: const InputDecoration(labelText: 'Monto'),
                           validator: (v) {
                             final n = double.tryParse((v ?? '').trim().replaceAll(',', '.'));
-                            return (n == null || n <= 0) ? 'Monto inválido' : null;
+                            return (n == null || !n.isFinite || n <= 0)
+                                ? 'Monto inválido'
+                                : null;
                           },
                         ),
                       ),

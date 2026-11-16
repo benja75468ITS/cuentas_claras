@@ -64,15 +64,26 @@ class DbHelper {
     if (p.deId == p.aId) {
       throw ArgumentError('El pagador y el receptor no pueden ser la misma persona');
     }
-    if (p.monto <= 0) {
-      throw ArgumentError('El monto del pago debe ser mayor a 0');
+    if (!p.monto.isFinite || p.monto <= 0) {
+      throw ArgumentError('El monto del pago debe ser un valor finito mayor a 0');
     }
-    await (await db).insert('pagos', {
-      'grupo_id': p.grupoId,
-      'de_id': p.deId,
-      'a_id': p.aId,
-      'monto': redondearMoneda(p.monto),
-      'fecha': p.fecha,
+    final monto = redondearMoneda(p.monto);
+    if (!monto.isFinite || monto <= 0) {
+      throw ArgumentError('El monto del pago debe ser de al menos un centavo');
+    }
+    if (p.fecha.trim().isEmpty) {
+      throw ArgumentError('La fecha del pago no puede estar vacía');
+    }
+    final d = await db;
+    await d.transaction((t) async {
+      await _validarPersonasDelGrupo(t, p.grupoId, [p.deId, p.aId]);
+      await t.insert('pagos', {
+        'grupo_id': p.grupoId,
+        'de_id': p.deId,
+        'a_id': p.aId,
+        'monto': monto,
+        'fecha': p.fecha,
+      });
     });
   }
 
@@ -104,6 +115,9 @@ class DbHelper {
         unicas.add(limpio);
       }
     }
+    if (unicas.length < 2) {
+      throw ArgumentError('El grupo debe tener al menos 2 personas distintas');
+    }
 
     final d = await db;
     await d.transaction((t) async {
@@ -126,8 +140,24 @@ class DbHelper {
 
   Future<void> agregarPersona(int grupoId, String nombre) async {
     final limpio = nombre.trim();
-    if (limpio.isEmpty) return;
-    await (await db).insert('personas', {'grupo_id': grupoId, 'nombre': limpio});
+    if (limpio.isEmpty) {
+      throw ArgumentError('El nombre de la persona no puede estar vacío');
+    }
+    final d = await db;
+    await d.transaction((t) async {
+      final existentes = await t.query(
+        'personas',
+        columns: ['nombre'],
+        where: 'grupo_id = ?',
+        whereArgs: [grupoId],
+      );
+      if (existentes.any(
+        (p) => (p['nombre'] as String).toLowerCase() == limpio.toLowerCase(),
+      )) {
+        throw ArgumentError('Ya existe "$limpio" en este grupo');
+      }
+      await t.insert('personas', {'grupo_id': grupoId, 'nombre': limpio});
+    });
   }
 
   // ---------- Gastos ----------
@@ -173,23 +203,59 @@ class DbHelper {
     if (unicos.isEmpty) {
       throw ArgumentError('El gasto debe tener al menos un participante');
     }
-    if (g.monto <= 0) {
-      throw ArgumentError('El monto del gasto debe ser mayor a 0');
+    if (!g.monto.isFinite || g.monto <= 0) {
+      throw ArgumentError('El monto del gasto debe ser un valor finito mayor a 0');
+    }
+    if (!g.montoOriginal.isFinite || g.montoOriginal <= 0) {
+      throw ArgumentError('El monto original debe ser un valor finito mayor a 0');
+    }
+    final monto = redondearMoneda(g.monto);
+    final montoOriginal = redondearMoneda(g.montoOriginal);
+    if (!monto.isFinite || monto <= 0 || !montoOriginal.isFinite || montoOriginal <= 0) {
+      throw ArgumentError('Los montos deben ser de al menos un centavo');
+    }
+    final descripcion = g.descripcion.trim();
+    if (descripcion.isEmpty) {
+      throw ArgumentError('La descripción del gasto no puede estar vacía');
+    }
+    final moneda = g.moneda.trim().toUpperCase();
+    if (moneda.isEmpty) {
+      throw ArgumentError('La moneda del gasto no puede estar vacía');
     }
     final d = await db;
     await d.transaction((t) async {
+      await _validarPersonasDelGrupo(t, g.grupoId, [g.pagadorId, ...unicos]);
       final id = await t.insert('gastos', {
         'grupo_id': g.grupoId,
-        'descripcion': g.descripcion.trim(),
-        'monto': redondearMoneda(g.monto),
-        'monto_original': redondearMoneda(g.montoOriginal),
-        'moneda': g.moneda,
+        'descripcion': descripcion,
+        'monto': monto,
+        'monto_original': montoOriginal,
+        'moneda': moneda,
         'pagador_id': g.pagadorId,
       });
       for (final p in unicos) {
         await t.insert('participantes', {'gasto_id': id, 'persona_id': p});
       }
     });
+  }
+
+  Future<void> _validarPersonasDelGrupo(
+    Transaction t,
+    int grupoId,
+    Iterable<int> personaIds,
+  ) async {
+    final ids = personaIds.toSet().toList();
+    if (ids.isEmpty) {
+      throw ArgumentError('Se requiere al menos una persona del grupo');
+    }
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    final filas = await t.rawQuery(
+      'SELECT id FROM personas WHERE grupo_id = ? AND id IN ($placeholders)',
+      [grupoId, ...ids],
+    );
+    if (filas.length != ids.length) {
+      throw ArgumentError('Todas las personas deben pertenecer al mismo grupo');
+    }
   }
 
   Future<void> eliminarGasto(int id) async =>

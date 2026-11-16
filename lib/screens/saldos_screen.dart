@@ -53,7 +53,7 @@ class _SaldosScreenState extends State<SaldosScreen> {
         inicial: maxDeuda.toStringAsFixed(2), numerico: true);
     if (txt == null || txt.isEmpty) return;
     final m = double.tryParse(txt.trim().replaceAll(',', '.'));
-    if (m == null || m <= 0) return _aviso('Monto inválido');
+    if (m == null || !m.isFinite || m <= 0) return _aviso('Monto inválido');
     final montoRedondeado = redondearMoneda(m);
     if (montoRedondeado <= 0) return _aviso('Monto inválido');
     if (montoRedondeado > maxDeuda) return _aviso('El pago no puede ser mayor a la deuda');

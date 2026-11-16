@@ -1,9 +1,27 @@
 # Cuentas Claras
 
-1. `flutter create cuentas_claras`  (crea android/, ios/, windows/, etc.)
-2. Reemplaza `pubspec.yaml` y la carpeta `lib/` con los de este zip.
-3. Borra `test/widget_test.dart` (hace referencia a la app de ejemplo).
-4. `flutter pub get`
-5. `flutter run -d windows` (o macos / linux) y `flutter run -d <id del celular>`
+Aplicación Flutter para dividir gastos entre grupos y consultar saldos.
 
-Ver dispositivos: `flutter devices`.
+## Desarrollo
+
+```sh
+flutter pub get
+flutter run
+```
+
+Para consultar los dispositivos disponibles:
+
+```sh
+flutter devices
+```
+
+## Validación
+
+```sh
+flutter analyze
+flutter test
+```
+
+El workflow de GitHub Actions ejecuta estas validaciones antes de compilar. Si
+son exitosas, los APK y paquetes de escritorio se publican como artefactos en
+la ejecución del workflow, en la pestaña **Actions** del repositorio.
