@@ -49,3 +49,30 @@ class Gasto {
 }
 
 String dinero(double v) => '\$${v.toStringAsFixed(2)}';
+
+/// Pago registrado: [deId] le pagó [monto] a [aId].
+class Pago {
+  final int? id;
+  final int grupoId;
+  final int deId;
+  final int aId;
+  final double monto;
+  final String fecha;
+  Pago({
+    this.id,
+    required this.grupoId,
+    required this.deId,
+    required this.aId,
+    required this.monto,
+    required this.fecha,
+  });
+
+  factory Pago.fromMap(Map<String, Object?> m) => Pago(
+        id: m['id'] as int,
+        grupoId: m['grupo_id'] as int,
+        deId: m['de_id'] as int,
+        aId: m['a_id'] as int,
+        monto: (m['monto'] as num).toDouble(),
+        fecha: m['fecha'] as String,
+      );
+}

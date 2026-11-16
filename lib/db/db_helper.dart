@@ -12,8 +12,11 @@ class DbHelper {
   Future<Database> _abrir() async {
     return openDatabase(
       join(await getDatabasesPath(), 'cuentas_claras.db'),
-      version: 1,
+      version: 2,
       onConfigure: (d) => d.execute('PRAGMA foreign_keys = ON'),
+      onUpgrade: (d, o, n) async {
+        if (o < 2) await _crearPagos(d);
+      },
       onCreate: (d, v) async {
         await d.execute('''CREATE TABLE grupos(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,9 +37,36 @@ class DbHelper {
           gasto_id INTEGER NOT NULL REFERENCES gastos(id) ON DELETE CASCADE,
           persona_id INTEGER NOT NULL REFERENCES personas(id) ON DELETE CASCADE,
           PRIMARY KEY (gasto_id, persona_id))''');
+        await _crearPagos(d);
       },
     );
   }
+
+  static Future<void> _crearPagos(Database d) => d.execute('''CREATE TABLE pagos(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          grupo_id INTEGER NOT NULL REFERENCES grupos(id) ON DELETE CASCADE,
+          de_id INTEGER NOT NULL REFERENCES personas(id) ON DELETE CASCADE,
+          a_id INTEGER NOT NULL REFERENCES personas(id) ON DELETE CASCADE,
+          monto REAL NOT NULL,
+          fecha TEXT NOT NULL)''');
+
+  // ---------- Pagos ----------
+  Future<List<Pago>> pagos(int grupoId) async {
+    final r = await (await db)
+        .query('pagos', where: 'grupo_id = ?', whereArgs: [grupoId], orderBy: 'id DESC');
+    return r.map(Pago.fromMap).toList();
+  }
+
+  Future<void> registrarPago(Pago p) async => (await db).insert('pagos', {
+        'grupo_id': p.grupoId,
+        'de_id': p.deId,
+        'a_id': p.aId,
+        'monto': p.monto,
+        'fecha': p.fecha,
+      });
+
+  Future<void> eliminarPago(int id) async =>
+      (await db).delete('pagos', where: 'id = ?', whereArgs: [id]);
 
   // ---------- Grupos ----------
   Future<List<Grupo>> grupos() async {

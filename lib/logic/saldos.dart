@@ -8,7 +8,9 @@ class Transferencia {
 }
 
 /// Saldo neto por persona: positivo = le deben, negativo = debe.
-Map<int, double> calcularSaldos(List<Persona> personas, List<Gasto> gastos) {
+/// Un pago de X a Y sube el saldo de X y baja el de Y.
+Map<int, double> calcularSaldos(List<Persona> personas, List<Gasto> gastos,
+    [List<Pago> pagos = const []]) {
   final s = {for (final p in personas) p.id: 0.0};
   for (final g in gastos) {
     if (g.participantes.isEmpty) continue;
@@ -17,6 +19,10 @@ Map<int, double> calcularSaldos(List<Persona> personas, List<Gasto> gastos) {
     for (final id in g.participantes) {
       s[id] = (s[id] ?? 0) - parte;
     }
+  }
+  for (final p in pagos) {
+    s[p.deId] = (s[p.deId] ?? 0) + p.monto;
+    s[p.aId] = (s[p.aId] ?? 0) - p.monto;
   }
   return s;
 }
@@ -52,8 +58,8 @@ List<Transferencia> simplificar(Map<int, double> saldos) {
 }
 
 /// Deudas directas entre pares de personas (sin simplificar).
-/// Para cada par se restan las deudas en ambos sentidos.
-List<Transferencia> deudasDirectas(List<Gasto> gastos) {
+/// Para cada par se restan las deudas en ambos sentidos y los pagos hechos.
+List<Transferencia> deudasDirectas(List<Gasto> gastos, [List<Pago> pagos = const []]) {
   final d = <String, double>{};
   for (final g in gastos) {
     if (g.participantes.isEmpty) continue;
@@ -64,9 +70,13 @@ List<Transferencia> deudasDirectas(List<Gasto> gastos) {
       d[k] = (d[k] ?? 0) + parte;
     }
   }
+  for (final p in pagos) {
+    final k = '${p.deId}>${p.aId}';
+    d[k] = (d[k] ?? 0) - p.monto;
+  }
   final res = <Transferencia>[];
   final vistos = <String>{};
-  for (final k in d.keys) {
+  for (final k in d.keys.toList()) {
     final p = k.split('>');
     final a = int.parse(p[0]);
     final b = int.parse(p[1]);
