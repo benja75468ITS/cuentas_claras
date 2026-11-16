@@ -71,8 +71,9 @@ class _SaldosScreenState extends State<SaldosScreen> {
       if (m == null || !m.isFinite || m <= 0) return _aviso('Monto inválido');
       final montoRedondeado = redondearMoneda(m);
       if (montoRedondeado <= 0) return _aviso('Monto inválido');
-      if (montoRedondeado > maxDeuda)
+      if (montoRedondeado > maxDeuda) {
         return _aviso('El pago no puede ser mayor a la deuda');
+      }
 
       await DbHelper.instancia.registrarPago(Pago(
         grupoId: widget.grupo.id,
