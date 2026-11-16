@@ -13,8 +13,10 @@ class SaldosScreen extends StatefulWidget {
 class _SaldosScreenState extends State<SaldosScreen> {
   List<Persona> _personas = [];
   Map<int, double> _saldos = {};
-  List<Transferencia> _pagos = [];
+  List<Transferencia> _simplificados = [];
+  List<Transferencia> _directos = [];
   bool _cargando = true;
+  bool _modoDirecto = false;
 
   @override
   void initState() {
@@ -30,7 +32,8 @@ class _SaldosScreenState extends State<SaldosScreen> {
       setState(() {
         _personas = p;
         _saldos = s;
-        _pagos = simplificar(s);
+        _simplificados = simplificar(s);
+        _directos = deudasDirectas(g);
         _cargando = false;
       });
     }
@@ -39,6 +42,7 @@ class _SaldosScreenState extends State<SaldosScreen> {
   @override
   Widget build(BuildContext context) {
     final nombres = {for (final p in _personas) p.id: p.nombre};
+    final lista = _modoDirecto ? _directos : _simplificados;
     return Scaffold(
       appBar: AppBar(title: Text('Saldos · ${widget.grupo.nombre}')),
       body: _cargando
@@ -58,17 +62,34 @@ class _SaldosScreenState extends State<SaldosScreen> {
                   );
                 }),
               const Divider(height: 32),
-              Text('Cómo saldar las cuentas', style: Theme.of(context).textTheme.titleMedium),
-              if (_pagos.isEmpty)
+              Text('¿Quién le debe a quién?', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(value: false, label: Text('Simplificado'), icon: Icon(Icons.compress)),
+                  ButtonSegment(value: true, label: Text('Directas'), icon: Icon(Icons.call_split)),
+                ],
+                selected: {_modoDirecto},
+                onSelectionChanged: (s) => setState(() => _modoDirecto = s.first),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _modoDirecto
+                    ? 'Deudas entre cada par de personas, según los gastos.'
+                    : 'Menor número de pagos para dejar todo saldado.',
+                style: const TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              if (lista.isEmpty)
                 const Padding(
                   padding: EdgeInsets.all(16),
                   child: Text('¡Todo saldado! 🎉'),
                 ),
-              for (final t in _pagos)
+              for (final t in lista)
                 Card(
                   child: ListTile(
                     leading: const Icon(Icons.arrow_forward),
-                    title: Text('${nombres[t.deId]} le paga a ${nombres[t.aId]}'),
+                    title: Text('${nombres[t.deId]} le debe a ${nombres[t.aId]}'),
                     trailing: Text(dinero(t.monto),
                         style: const TextStyle(fontWeight: FontWeight.bold)),
                   ),

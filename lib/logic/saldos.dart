@@ -50,3 +50,34 @@ List<Transferencia> simplificar(Map<int, double> saldos) {
   }
   return pagos;
 }
+
+/// Deudas directas entre pares de personas (sin simplificar).
+/// Para cada par se restan las deudas en ambos sentidos.
+List<Transferencia> deudasDirectas(List<Gasto> gastos) {
+  final d = <String, double>{};
+  for (final g in gastos) {
+    if (g.participantes.isEmpty) continue;
+    final parte = g.monto / g.participantes.length;
+    for (final id in g.participantes) {
+      if (id == g.pagadorId) continue;
+      final k = '$id>${g.pagadorId}';
+      d[k] = (d[k] ?? 0) + parte;
+    }
+  }
+  final res = <Transferencia>[];
+  final vistos = <String>{};
+  for (final k in d.keys) {
+    final p = k.split('>');
+    final a = int.parse(p[0]);
+    final b = int.parse(p[1]);
+    final canon = a < b ? '$a|$b' : '$b|$a';
+    if (!vistos.add(canon)) continue;
+    final neto = (d['$a>$b'] ?? 0) - (d['$b>$a'] ?? 0);
+    if (neto > 0.005) {
+      res.add(Transferencia(a, b, neto));
+    } else if (neto < -0.005) {
+      res.add(Transferencia(b, a, -neto));
+    }
+  }
+  return res;
+}
