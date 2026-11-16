@@ -83,4 +83,49 @@ void main() {
     );
     expect(transferencias.every((t) => t.monto > 0), isTrue);
   });
+
+  test('divide un gasto entre cuatro personas y conserva exactamente el total', () {
+    final gasto = Gasto(
+      grupoId: 1,
+      descripcion: 'Comida',
+      monto: 1000,
+      montoOriginal: 1000,
+      moneda: 'MXN',
+      pagadorId: 1,
+      participantes: [1, 2, 3, 4],
+    );
+
+    final partes = repartirGasto(gasto);
+    final deudas = deudasDirectas([gasto]);
+
+    expect(partes, {2: 250, 3: 250, 4: 250, 1: 250});
+    expect(deudas, hasLength(3));
+    expect(deudas.fold<double>(0, (total, deuda) => total + deuda.monto), 750);
+  });
+
+  test('una deuda nueva usa el historial de pagos sin perder saldo por overpayment', () {
+    final gastoActual = Gasto(
+      grupoId: 1,
+      descripcion: 'Comida nueva',
+      monto: 80,
+      montoOriginal: 80,
+      moneda: 'MXN',
+      pagadorId: 1,
+      participantes: [1, 2],
+    );
+    final pagoPrevio = Pago(
+      grupoId: 1,
+      deId: 2,
+      aId: 1,
+      monto: 50,
+      fecha: '2026-01-01',
+    );
+
+    final deudas = deudasDirectas([gastoActual], [pagoPrevio]);
+
+    expect(deudas, hasLength(1));
+    expect(deudas.single.deId, 1);
+    expect(deudas.single.aId, 2);
+    expect(deudas.single.monto, 10);
+  });
 }

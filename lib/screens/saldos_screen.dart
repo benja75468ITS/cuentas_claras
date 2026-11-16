@@ -18,6 +18,8 @@ class _SaldosScreenState extends State<SaldosScreen> {
   List<Transferencia> _simplificados = [];
   bool _modoSimplificado = false;
   bool _cargando = true;
+  bool _guardandoPago = false;
+  int _versionCarga = 0;
 
   @override
   void initState() {
@@ -26,18 +28,28 @@ class _SaldosScreenState extends State<SaldosScreen> {
   }
 
   Future<void> _cargar() async {
-    final p = await DbHelper.instancia.personas(widget.grupo.id);
-    final g = await DbHelper.instancia.gastos(widget.grupo.id);
-    final pg = await DbHelper.instancia.pagos(widget.grupo.id);
-    final s = calcularSaldos(p, g, pg);
-    if (mounted) {
+    final version = ++_versionCarga;
+    try {
+      final estado = await DbHelper.instancia.estadoGrupo(widget.grupo.id);
+      final s = calcularSaldos(
+        estado.personas,
+        estado.gastos,
+        estado.pagos,
+      );
+      if (!mounted || version != _versionCarga) return;
       setState(() {
-        _personas = p;
-        _pagos = pg;
-        _directos = deudasDirectas(g, pg);
+        _personas = estado.personas;
+        _pagos = estado.pagos;
+        _directos = deudasDirectas(estado.gastos, estado.pagos);
         _simplificados = simplificar(s);
         _cargando = false;
       });
+    } catch (e) {
+      debugPrint(
+          'No se pudieron cargar los saldos del grupo ${widget.grupo.id}: $e');
+      if (!mounted || version != _versionCarga) return;
+      setState(() => _cargando = false);
+      _aviso('No se pudieron cargar los saldos. Inténtalo de nuevo.');
     }
   }
 
@@ -48,38 +60,52 @@ class _SaldosScreenState extends State<SaldosScreen> {
 
   /// Registra que [t.deId] le pagó a [t.aId] (total o parcial).
   Future<void> _marcarPagado(Transferencia t) async {
-    final maxDeuda = redondearMoneda(t.monto);
-    final txt = await pedirTexto(context, 'Registrar pago', 'Monto pagado',
-        inicial: maxDeuda.toStringAsFixed(2), numerico: true);
-    if (txt == null || txt.isEmpty) return;
-    final m = double.tryParse(txt.trim().replaceAll(',', '.'));
-    if (m == null || !m.isFinite || m <= 0) return _aviso('Monto inválido');
-    final montoRedondeado = redondearMoneda(m);
-    if (montoRedondeado <= 0) return _aviso('Monto inválido');
-    if (montoRedondeado > maxDeuda) return _aviso('El pago no puede ser mayor a la deuda');
+    if (_guardandoPago || _cargando) return;
+    setState(() => _guardandoPago = true);
+    try {
+      final maxDeuda = redondearMoneda(t.monto);
+      final txt = await pedirTexto(context, 'Registrar pago', 'Monto pagado',
+          inicial: maxDeuda.toStringAsFixed(2), numerico: true);
+      if (!mounted || txt == null || txt.isEmpty) return;
+      final m = double.tryParse(txt.trim().replaceAll(',', '.'));
+      if (m == null || !m.isFinite || m <= 0) return _aviso('Monto inválido');
+      final montoRedondeado = redondearMoneda(m);
+      if (montoRedondeado <= 0) return _aviso('Monto inválido');
+      if (montoRedondeado > maxDeuda)
+        return _aviso('El pago no puede ser mayor a la deuda');
 
-    await DbHelper.instancia.registrarPago(Pago(
-      grupoId: widget.grupo.id,
-      deId: t.deId,
-      aId: t.aId,
-      monto: montoRedondeado,
-      fecha: DateTime.now().toIso8601String().substring(0, 10),
-    ));
-    await _cargar();
-    _aviso('Pago registrado');
+      await DbHelper.instancia.registrarPago(Pago(
+        grupoId: widget.grupo.id,
+        deId: t.deId,
+        aId: t.aId,
+        monto: montoRedondeado,
+        fecha: DateTime.now().toIso8601String().substring(0, 10),
+      ));
+      await _cargar();
+      _aviso('Pago registrado');
+    } catch (e) {
+      debugPrint('No se pudo registrar el pago: $e');
+      _aviso('No se pudo registrar el pago; la deuda pudo haber cambiado.');
+      await _cargar();
+    } finally {
+      if (mounted) setState(() => _guardandoPago = false);
+    }
   }
 
-  Widget _filaDeuda(IconData icono, Color color, String texto, Transferencia t) {
+  Widget _filaDeuda(
+      IconData icono, Color color, String texto, Transferencia t) {
     return ListTile(
       dense: true,
       leading: Icon(icono, color: color),
       title: Text(texto),
       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-        Text(dinero(t.monto), style: const TextStyle(fontWeight: FontWeight.bold)),
+        Text(dinero(t.monto),
+            style: const TextStyle(fontWeight: FontWeight.bold)),
         IconButton(
           tooltip: 'Marcar pagado',
           icon: const Icon(Icons.check_circle_outline),
-          onPressed: () => _marcarPagado(t),
+          onPressed:
+              _guardandoPago || _cargando ? null : () => _marcarPagado(t),
         ),
       ]),
     );
@@ -116,7 +142,8 @@ class _SaldosScreenState extends State<SaldosScreen> {
     if (tieneLeDeben) {
       return Text(
         'Le deben ${dinero(totalLeDeben)}',
-        style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
+        style:
+            const TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
       );
     }
     return const Text(
@@ -125,8 +152,8 @@ class _SaldosScreenState extends State<SaldosScreen> {
     );
   }
 
-  Widget _tilePersona(
-      Persona p, Map<int, String> nombres, List<Transferencia> transferenciasActivas) {
+  Widget _tilePersona(Persona p, Map<int, String> nombres,
+      List<Transferencia> transferenciasActivas) {
     final debe = transferenciasActivas.where((t) => t.deId == p.id).toList();
     final leDeben = transferenciasActivas.where((t) => t.aId == p.id).toList();
     final totalDebe = debe.fold<double>(0.0, (acc, t) => acc + t.monto);
@@ -142,10 +169,11 @@ class _SaldosScreenState extends State<SaldosScreen> {
           if (debe.isEmpty && leDeben.isEmpty)
             const ListTile(dense: true, title: Text('Sin deudas pendientes')),
           for (final t in debe)
-            _filaDeuda(Icons.arrow_upward, Colors.red, 'Debe a ${nombres[t.aId] ?? '?'}', t),
+            _filaDeuda(Icons.arrow_upward, Colors.red,
+                'Debe a ${nombres[t.aId] ?? '?'}', t),
           for (final t in leDeben)
-            _filaDeuda(
-                Icons.arrow_downward, Colors.green, '${nombres[t.deId] ?? '?'} le debe', t),
+            _filaDeuda(Icons.arrow_downward, Colors.green,
+                '${nombres[t.deId] ?? '?'} le debe', t),
         ],
       ),
     );
@@ -172,7 +200,8 @@ class _SaldosScreenState extends State<SaldosScreen> {
                       ButtonSegment(value: true, label: Text('Simplificadas')),
                     ],
                     selected: {_modoSimplificado},
-                    onSelectionChanged: (s) => setState(() => _modoSimplificado = s.first),
+                    onSelectionChanged: (s) =>
+                        setState(() => _modoSimplificado = s.first),
                   ),
                 ],
               ),
@@ -191,23 +220,27 @@ class _SaldosScreenState extends State<SaldosScreen> {
                     child: Text('¡Todo saldado! 🎉'),
                   ),
                 ),
-              for (final p in _personas) _tilePersona(p, nombres, transferencias),
+              for (final p in _personas)
+                _tilePersona(p, nombres, transferencias),
               if (_pagos.isNotEmpty) ...[
                 const Divider(height: 32),
                 Text('Pagos registrados', style: titulo),
                 for (final p in _pagos)
                   ListTile(
-                    leading: const Icon(Icons.check_circle, color: Colors.green),
-                    title: Text('${nombres[p.deId] ?? '?'} le pagó a ${nombres[p.aId] ?? '?'}'),
+                    leading:
+                        const Icon(Icons.check_circle, color: Colors.green),
+                    title: Text(
+                        '${nombres[p.deId] ?? '?'} le pagó a ${nombres[p.aId] ?? '?'}'),
                     subtitle: Text(p.fecha),
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Text(dinero(p.monto), style: const TextStyle(fontWeight: FontWeight.bold)),
+                      Text(dinero(p.monto),
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
                       IconButton(
                         tooltip: 'Deshacer pago',
                         icon: const Icon(Icons.undo),
                         onPressed: () async {
-                          if (await confirmar(
-                              context, 'Se eliminará este pago y la deuda volverá a aparecer.')) {
+                          if (await confirmar(context,
+                              'Se eliminará este pago y la deuda volverá a aparecer.')) {
                             await DbHelper.instancia.eliminarPago(p.id!);
                             _cargar();
                           }

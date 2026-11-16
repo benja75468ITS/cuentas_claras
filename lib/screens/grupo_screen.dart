@@ -15,6 +15,7 @@ class _GrupoScreenState extends State<GrupoScreen> {
   List<Persona> _personas = [];
   List<Gasto> _gastos = [];
   bool _cargando = true;
+  int _versionCarga = 0;
 
   @override
   void initState() {
@@ -23,9 +24,23 @@ class _GrupoScreenState extends State<GrupoScreen> {
   }
 
   Future<void> _cargar() async {
-    final p = await DbHelper.instancia.personas(widget.grupo.id);
-    final g = await DbHelper.instancia.gastos(widget.grupo.id);
-    if (mounted) setState(() { _personas = p; _gastos = g; _cargando = false; });
+    final version = ++_versionCarga;
+    try {
+      final estado = await DbHelper.instancia.estadoGrupo(widget.grupo.id);
+      if (!mounted || version != _versionCarga) return;
+      setState(() {
+        _personas = estado.personas;
+        _gastos = estado.gastos;
+        _cargando = false;
+      });
+    } catch (e) {
+      debugPrint('No se pudo cargar el grupo ${widget.grupo.id}: $e');
+      if (!mounted || version != _versionCarga) return;
+      setState(() => _cargando = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudieron cargar los gastos del grupo.')),
+      );
+    }
   }
 
   Future<void> _agregarPersona() async {
@@ -41,8 +56,17 @@ class _GrupoScreenState extends State<GrupoScreen> {
       }
       return;
     }
-    await DbHelper.instancia.agregarPersona(widget.grupo.id, limpio);
-    _cargar();
+    try {
+      await DbHelper.instancia.agregarPersona(widget.grupo.id, limpio);
+      await _cargar();
+    } catch (e) {
+      debugPrint('No se pudo agregar la persona "$limpio": $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo agregar la persona.')),
+        );
+      }
+    }
   }
 
   Future<void> _nuevoGasto() async {
@@ -52,7 +76,7 @@ class _GrupoScreenState extends State<GrupoScreen> {
       return;
     }
     final r = await Navigator.pushNamed(context, '/gasto', arguments: widget.grupo);
-    _cargar();
+    await _cargar();
     if (r == true && mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Gasto guardado')));
@@ -166,8 +190,18 @@ class _GrupoScreenState extends State<GrupoScreen> {
                         icon: const Icon(Icons.delete_outline),
                         onPressed: () async {
                           if (await confirmar(context, 'Se eliminará "${g.descripcion}".')) {
-                            await DbHelper.instancia.eliminarGasto(g.id!);
-                            _cargar();
+                            try {
+                              await DbHelper.instancia.eliminarGasto(g.id!);
+                              await _cargar();
+                            } catch (e) {
+                              debugPrint('No se pudo eliminar el gasto ${g.id}: $e');
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content: Text('No se pudo eliminar el gasto.')),
+                                );
+                              }
+                            }
                           }
                         },
                       ),

@@ -32,6 +32,33 @@ class _GruposScreenState extends State<GruposScreen> {
     _cargar();
   }
 
+  Future<void> _eliminarGrupo(Grupo grupo) async {
+    final confirmarBorrado = await confirmar(
+      context,
+      'Se borrará "${grupo.nombre}" con todas sus personas, gastos y pagos. Esta acción no se puede deshacer.',
+    );
+    if (!confirmarBorrado) return;
+
+    try {
+      await DbHelper.instancia.eliminarGrupo(grupo.id);
+      await _cargar();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Se eliminó el grupo "${grupo.nombre}"')),
+        );
+      }
+    } catch (e) {
+      debugPrint('No se pudo eliminar el grupo ${grupo.id}: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content:
+                  Text('No se pudo eliminar el grupo. Inténtalo de nuevo.')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -68,33 +95,26 @@ class _GruposScreenState extends State<GruposScreen> {
                   itemCount: _grupos.length,
                   itemBuilder: (_, i) {
                     final g = _grupos[i];
-                    return Dismissible(
-                      key: ValueKey(g.id),
-                      direction: DismissDirection.endToStart,
-                      background: Container(
-                        color: Colors.red,
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.only(right: 20),
-                        child: const Icon(Icons.delete, color: Colors.white),
-                      ),
-                      confirmDismiss: (_) =>
-                          confirmar(context, 'Se borrará "${g.nombre}" y todos sus gastos.'),
-                      onDismissed: (_) async {
-                        setState(() => _grupos.removeWhere((item) => item.id == g.id));
-                        await DbHelper.instancia.eliminarGrupo(g.id);
-                        _cargar();
-                      },
-                      child: Card(
-                        child: ListTile(
-                          leading: const CircleAvatar(child: Icon(Icons.group)),
-                          title: Text(g.nombre),
-                          subtitle: Text('${g.nPersonas} personas · Total ${dinero(g.total)} MXN'),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () async {
-                            await Navigator.pushNamed(context, '/grupo', arguments: g);
-                            _cargar();
-                          },
+                    return Card(
+                      child: ListTile(
+                        leading: const CircleAvatar(child: Icon(Icons.group)),
+                        title: Text(g.nombre),
+                        subtitle: Text('${g.nPersonas} personas · Total ${dinero(g.total)} MXN'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Eliminar grupo',
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () => _eliminarGrupo(g),
+                            ),
+                            const Icon(Icons.chevron_right),
+                          ],
                         ),
+                        onTap: () async {
+                          await Navigator.pushNamed(context, '/grupo', arguments: g);
+                          _cargar();
+                        },
                       ),
                     );
                   },

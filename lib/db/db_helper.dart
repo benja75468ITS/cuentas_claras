@@ -1,5 +1,6 @@
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
+import '../logic/saldos.dart';
 import '../models/modelos.dart';
 
 class DbHelper {
@@ -55,9 +56,23 @@ class DbHelper {
 
   // ---------- Pagos ----------
   Future<List<Pago>> pagos(int grupoId) async {
-    final r = await (await db)
-        .query('pagos', where: 'grupo_id = ?', whereArgs: [grupoId], orderBy: 'id DESC');
+    return _pagosDesde(await db, grupoId);
+  }
+
+  Future<List<Pago>> _pagosDesde(DatabaseExecutor executor, int grupoId) async {
+    final r = await executor.query('pagos',
+        where: 'grupo_id = ?', whereArgs: [grupoId], orderBy: 'id DESC');
     return r.map(Pago.fromMap).toList();
+  }
+
+  Future<({List<Persona> personas, List<Gasto> gastos, List<Pago> pagos})>
+      estadoGrupo(int grupoId) async {
+    final d = await db;
+    return d.transaction((t) async => (
+          personas: await _personasDesde(t, grupoId),
+          gastos: await _gastosDesde(t, grupoId),
+          pagos: await _pagosDesde(t, grupoId),
+        ));
   }
 
   Future<void> registrarPago(Pago p) async {
@@ -77,6 +92,25 @@ class DbHelper {
     final d = await db;
     await d.transaction((t) async {
       await _validarPersonasDelGrupo(t, p.grupoId, [p.deId, p.aId]);
+      final personasGrupo = await _personasDesde(t, p.grupoId);
+      final gastosGrupo = await _gastosDesde(t, p.grupoId);
+      final pagosGrupo = await _pagosDesde(t, p.grupoId);
+      final directos = deudasDirectas(gastosGrupo, pagosGrupo);
+      final simplificados = simplificar(
+        calcularSaldos(personasGrupo, gastosGrupo, pagosGrupo),
+      );
+      final deudaDirecta = directos
+          .where((d) => d.deId == p.deId && d.aId == p.aId)
+          .fold<int>(0, (total, d) => total + (d.monto * 100).round());
+      final deudaSimplificada = simplificados
+          .where((d) => d.deId == p.deId && d.aId == p.aId)
+          .fold<int>(0, (total, d) => total + (d.monto * 100).round());
+      final deudaMaxima = deudaDirecta > deudaSimplificada
+          ? deudaDirecta
+          : deudaSimplificada;
+      if ((monto * 100).round() > deudaMaxima) {
+        throw ArgumentError('El pago no puede ser mayor a la deuda pendiente');
+      }
       await t.insert('pagos', {
         'grupo_id': p.grupoId,
         'de_id': p.deId,
@@ -133,8 +167,12 @@ class DbHelper {
 
   // ---------- Personas ----------
   Future<List<Persona>> personas(int grupoId) async {
-    final r = await (await db)
-        .query('personas', where: 'grupo_id = ?', whereArgs: [grupoId], orderBy: 'id');
+    return _personasDesde(await db, grupoId);
+  }
+
+  Future<List<Persona>> _personasDesde(DatabaseExecutor executor, int grupoId) async {
+    final r = await executor.query('personas',
+        where: 'grupo_id = ?', whereArgs: [grupoId], orderBy: 'id');
     return r.map(Persona.fromMap).toList();
   }
 
@@ -162,13 +200,16 @@ class DbHelper {
 
   // ---------- Gastos ----------
   Future<List<Gasto>> gastos(int grupoId) async {
-    final d = await db;
-    final r = await d.query('gastos',
+    return _gastosDesde(await db, grupoId);
+  }
+
+  Future<List<Gasto>> _gastosDesde(DatabaseExecutor executor, int grupoId) async {
+    final r = await executor.query('gastos',
         where: 'grupo_id = ?', whereArgs: [grupoId], orderBy: 'id DESC');
     if (r.isEmpty) return [];
 
     // Carga todos los participantes del grupo en una sola consulta (evita N+1 queries).
-    final partsRows = await d.rawQuery('''
+    final partsRows = await executor.rawQuery('''
       SELECT p.gasto_id, p.persona_id
       FROM participantes p
       INNER JOIN gastos g ON g.id = p.gasto_id

@@ -109,29 +109,48 @@ List<Transferencia> simplificar(Map<int, double> saldos) {
 
 /// Deudas directas pendientes sin compensar entre pares.
 /// Si A le debe a B por un gasto y B le debe a A por otro gasto, ambas deudas
-/// permanecen activas por separado hasta que se registre un pago real.
+/// permanecen activas por separado. Un pago superior a una deuda se aplica
+/// como crédito a favor de quien lo recibió de más.
 List<Transferencia> deudasDirectas(List<Gasto> gastos, [List<Pago> pagos = const []]) {
-  final d = <String, int>{};
+  final d = <(int, int), int>{};
   for (final g in gastos) {
     final partes = _repartoEnCentavos(g);
     partes.forEach((id, parte) {
       if (id == g.pagadorId || parte == 0) return;
-      final k = '$id>${g.pagadorId}';
+      final k = (id, g.pagadorId);
       d[k] = (d[k] ?? 0) + parte;
     });
   }
   for (final p in pagos) {
-    final k = '${p.deId}>${p.aId}';
+    final k = (p.deId, p.aId);
     d[k] = (d[k] ?? 0) - _aCentavos(p.monto);
   }
 
   final res = <Transferencia>[];
-  for (final entry in d.entries) {
-    if (entry.value <= 0) continue;
-    final p = entry.key.split('>');
-    final deId = int.parse(p[0]);
-    final aId = int.parse(p[1]);
-    res.add(Transferencia(deId, aId, _deCentavos(entry.value)));
+  final paresProcesados = <(int, int)>{};
+  for (final k in d.keys) {
+    final menor = k.$1 < k.$2 ? k.$1 : k.$2;
+    final mayor = k.$1 < k.$2 ? k.$2 : k.$1;
+    if (!paresProcesados.add((menor, mayor))) continue;
+
+    final menorAMayor = d[(menor, mayor)] ?? 0;
+    final mayorAMenor = d[(mayor, menor)] ?? 0;
+    if (menorAMayor < 0 || mayorAMenor < 0) {
+      final neto = menorAMayor - mayorAMenor;
+      if (neto > 0) {
+        res.add(Transferencia(menor, mayor, _deCentavos(neto)));
+      } else if (neto < 0) {
+        res.add(Transferencia(mayor, menor, _deCentavos(-neto)));
+      }
+      continue;
+    }
+
+    if (menorAMayor > 0) {
+      res.add(Transferencia(menor, mayor, _deCentavos(menorAMayor)));
+    }
+    if (mayorAMenor > 0) {
+      res.add(Transferencia(mayor, menor, _deCentavos(mayorAMenor)));
+    }
   }
   return res;
 }
