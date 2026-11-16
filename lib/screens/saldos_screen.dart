@@ -15,10 +15,8 @@ class _SaldosScreenState extends State<SaldosScreen> {
   List<Persona> _personas = [];
   List<Pago> _pagos = [];
   Map<int, double> _saldos = {};
-  List<Transferencia> _simplificados = [];
   List<Transferencia> _directos = [];
   bool _cargando = true;
-  bool _modoDirecto = false;
 
   @override
   void initState() {
@@ -36,7 +34,6 @@ class _SaldosScreenState extends State<SaldosScreen> {
         _personas = p;
         _pagos = pg;
         _saldos = s;
-        _simplificados = simplificar(s);
         _directos = deudasDirectas(g, pg);
         _cargando = false;
       });
@@ -61,78 +58,77 @@ class _SaldosScreenState extends State<SaldosScreen> {
       monto: m,
       fecha: DateTime.now().toIso8601String().substring(0, 10),
     ));
-    _cargar();
+    await _cargar();
+    _aviso('Pago registrado');
+  }
+
+  Widget _filaDeuda(IconData icono, Color color, String texto, Transferencia t) {
+    return ListTile(
+      dense: true,
+      leading: Icon(icono, color: color),
+      title: Text(texto),
+      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+        Text(dinero(t.monto), style: const TextStyle(fontWeight: FontWeight.bold)),
+        IconButton(
+          tooltip: 'Marcar pagado',
+          icon: const Icon(Icons.check_circle_outline),
+          onPressed: () => _marcarPagado(t),
+        ),
+      ]),
+    );
+  }
+
+  Widget _tilePersona(Persona p, Map<int, String> nombres) {
+    final v = _saldos[p.id] ?? 0;
+    final color = v > 0.005 ? Colors.green : (v < -0.005 ? Colors.red : Colors.grey);
+    final debe = _directos.where((t) => t.deId == p.id).toList();
+    final leDeben = _directos.where((t) => t.aId == p.id).toList();
+    return Card(
+      child: ExpansionTile(
+        leading: CircleAvatar(child: Text(p.nombre[0].toUpperCase())),
+        title: Text(p.nombre),
+        subtitle: Text(
+          v > 0.005
+              ? 'Le deben ${dinero(v)}'
+              : (v < -0.005 ? 'Debe ${dinero(-v)}' : 'Está al corriente'),
+          style: TextStyle(color: color, fontWeight: FontWeight.w600),
+        ),
+        children: [
+          if (debe.isEmpty && leDeben.isEmpty)
+            const ListTile(dense: true, title: Text('Sin deudas pendientes')),
+          for (final t in debe)
+            _filaDeuda(Icons.arrow_upward, Colors.red, 'Debe a ${nombres[t.aId]}', t),
+          for (final t in leDeben)
+            _filaDeuda(Icons.arrow_downward, Colors.green, '${nombres[t.deId]} le debe', t),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final nombres = {for (final p in _personas) p.id: p.nombre};
-    final lista = _modoDirecto ? _directos : _simplificados;
+    final titulo = Theme.of(context).textTheme.titleMedium;
     return Scaffold(
       appBar: AppBar(title: Text('Saldos · ${widget.grupo.nombre}')),
       body: _cargando
           ? const Center(child: CircularProgressIndicator())
           : ListView(padding: const EdgeInsets.all(12), children: [
-              Text('Balance por persona', style: Theme.of(context).textTheme.titleMedium),
-              for (final p in _personas)
-                Builder(builder: (_) {
-                  final v = _saldos[p.id] ?? 0;
-                  final color = v > 0.005 ? Colors.green : (v < -0.005 ? Colors.red : Colors.grey);
-                  return ListTile(
-                    leading: CircleAvatar(child: Text(p.nombre[0].toUpperCase())),
-                    title: Text(p.nombre),
-                    subtitle: Text(v > 0.005 ? 'Le deben' : (v < -0.005 ? 'Debe' : 'Está al corriente')),
-                    trailing: Text(dinero(v.abs()),
-                        style: TextStyle(color: color, fontWeight: FontWeight.bold)),
-                  );
-                }),
-              const Divider(height: 32),
-              Text('¿Quién le debe a quién?', style: Theme.of(context).textTheme.titleMedium),
+              Text('Balance por persona', style: titulo),
+              const Text('Toca una persona para ver con quién tiene deudas.',
+                  style: TextStyle(fontSize: 12)),
               const SizedBox(height: 8),
-              SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(value: false, label: Text('Simplificado'), icon: Icon(Icons.compress)),
-                  ButtonSegment(value: true, label: Text('Directas'), icon: Icon(Icons.call_split)),
-                ],
-                selected: {_modoDirecto},
-                onSelectionChanged: (s) => setState(() => _modoDirecto = s.first),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _modoDirecto
-                    ? 'Deudas entre cada par de personas, según los gastos.'
-                    : 'Menor número de pagos para dejar todo saldado.',
-                style: const TextStyle(fontSize: 12),
-              ),
-              const SizedBox(height: 8),
-              if (lista.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('¡Todo saldado! 🎉'),
-                ),
-              for (final t in lista)
-                Card(
+              if (_directos.isEmpty)
+                const Card(
                   child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('${nombres[t.deId]} le debe a ${nombres[t.aId]}',
-                          style: const TextStyle(fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 6),
-                      Row(children: [
-                        Text(dinero(t.monto), style: Theme.of(context).textTheme.titleMedium),
-                        const Spacer(),
-                        FilledButton.tonalIcon(
-                          onPressed: () => _marcarPagado(t),
-                          icon: const Icon(Icons.check),
-                          label: const Text('Pagado'),
-                        ),
-                      ]),
-                    ]),
+                    padding: EdgeInsets.all(16),
+                    child: Text('¡Todo saldado! 🎉'),
                   ),
                 ),
+              for (final p in _personas) _tilePersona(p, nombres),
               if (_pagos.isNotEmpty) ...[
                 const Divider(height: 32),
-                Text('Pagos registrados', style: Theme.of(context).textTheme.titleMedium),
+                Text('Pagos registrados', style: titulo),
                 for (final p in _pagos)
                   ListTile(
                     leading: const Icon(Icons.check_circle, color: Colors.green),

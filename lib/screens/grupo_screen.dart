@@ -40,8 +40,12 @@ class _GrupoScreenState extends State<GrupoScreen> {
           const SnackBar(content: Text('Agrega al menos 2 personas al grupo')));
       return;
     }
-    await Navigator.pushNamed(context, '/gasto', arguments: widget.grupo);
+    final r = await Navigator.pushNamed(context, '/gasto', arguments: widget.grupo);
     _cargar();
+    if (r == true && mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Gasto guardado')));
+    }
   }
 
   /// Muestra quién pagó este gasto y cuánto le debe cada participante.
@@ -83,6 +87,11 @@ class _GrupoScreenState extends State<GrupoScreen> {
                     trailing: Text(dinero(parte),
                         style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
                   ),
+              const SizedBox(height: 12),
+              const Text(
+                'Este es el reparto original del gasto. Los pagos se registran en Saldos.',
+                style: TextStyle(fontSize: 12),
+              ),
             ],
           ),
         ),

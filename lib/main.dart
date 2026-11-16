@@ -33,6 +33,15 @@ class CuentasClarasApp extends StatelessWidget {
       title: 'Cuentas Claras',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(colorSchemeSeed: Colors.teal, useMaterial3: true),
+      builder: (context, child) => ColoredBox(
+        color: Theme.of(context).colorScheme.surface,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 700),
+            child: child,
+          ),
+        ),
+      ),
       initialRoute: '/',
       onGenerateRoute: (s) {
         Widget pantalla;

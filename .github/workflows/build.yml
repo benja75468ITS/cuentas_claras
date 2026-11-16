@@ -22,7 +22,7 @@ jobs:
           path: build/app/outputs/flutter-apk/app-debug.apk
 
   macos:
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
